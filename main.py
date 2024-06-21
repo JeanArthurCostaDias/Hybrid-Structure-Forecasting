@@ -257,16 +257,15 @@ def STL_ARIMA_ES_LSTM(peru):
     resid_x,resid_y = SlidingWindow(window_len=8,horizon=8,stride=None)(resid.values)
     splits_testando = TSSplitter(valid_size=0.15,test_size=0.15)(resid_y)
 
-    # optuna_opt = optuna_optimize(LSTMPlus,resid_x,resid_y,splits_testando,epochs=50)
-    # study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
-    # print(f"O Melhor modelo foi o de número {study.best_trial.number}")
-    # print("Best hyperparameters: ", study.best_trial.params)
-
+    optuna_opt = optuna_optimize(LSTMPlus,resid_x,resid_y,splits_testando,epochs=50)
+    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
+    print(f"O Melhor modelo foi o de número {study.best_trial.number}")
+    print("Best hyperparameters: ", study.best_trial.params)
 
     residual_forecast,target_residual = forecast_ann(resid_x, resid_y,splits_testando,model=LSTMPlus, epochs=50,
-                                                     arch_config={'hidden_size': 135, 'n_layers': 2, 'rnn_dropout': 0.6193926562216368, 'bidirectional': True, 'fc_dropout': 0.209474313213079},
+                                                     arch_config={key: value for key, value in list(study.best_trial.params.items())[:-1]},
                                                      btfms=TSStandardize(),loss_func=HuberLoss('mean'),cbs=[ReduceLROnPlateau(patience=3)],
-                                                     lr=0.0008327152231865279
+                                                     lr=study.best_trial.params['learning_rate_model']
                                                      )
 
     train_values = np.concatenate([resid_x[splits_testando[0]].flatten(),resid_x[splits_testando[1]].flatten()])
