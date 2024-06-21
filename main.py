@@ -174,7 +174,7 @@ def residual_summary(forecast, target,dt_index):
 
     # Resíduos vs. Tempo (ocupando a segunda linha inteira)
     ax5 = fig.add_subplot(gs[2, :])
-    ax5.plot(preds_residuals)
+    ax5.plot(dt_index,preds_residuals)
     ax5.axhline(0, color='red', linestyle='--')
     ax5.set_title('Resíduos ao longo do Tempo')
 
