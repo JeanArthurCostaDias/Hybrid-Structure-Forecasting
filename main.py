@@ -15,21 +15,25 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from pmdarima.arima import AutoARIMA
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-from scipy.stats import shapiro
 from tsai.all import *
-from statsmodels.graphics.tsaplots import plot_acf
 from fastai.vision.all import *
 from fastai.text.all import *
 from fastai.collab import *
 from fastai.tabular.all import *
 import optuna
+import seaborn as sns
+from scipy.stats import shapiro, kstest
+from statsmodels.stats.diagnostic import het_breuschpagan
+from statsmodels.stats.stattools import durbin_watson
+from sfrancia import shapiroFrancia
 
 class optuna_optimize:
-    def __init__(self,arch,X,y,splits):
+    def __init__(self,arch,X,y,splits,epochs):
         self.arch = arch
         self.X = X
         self.y = y
         self.splits = splits
+        self.epochs = epochs
 
     def optuna_objective(self,trial):
         hidden_size = trial.suggest_int('hidden_size', 16, 200)
@@ -53,12 +57,12 @@ class optuna_optimize:
                             cbs=[
                                 ReduceLROnPlateau(patience=3)
                             ],seed=1)
-
+        
         with ContextManagers([learn.no_bar(),learn.no_logging()]):
-            learn.fit_one_cycle(100, lr_max=learning_rate_model)
+            learn.fit_one_cycle(self.epochs, lr_max=learning_rate_model)
             raw_preds, target, _ = learn.get_X_preds(self.X[self.splits[1]], self.y[self.splits[1]])
             intermediate_value = mean_squared_error(y_true=target, y_pred=raw_preds, squared=False)
-
+        
         return intermediate_value
 
 
@@ -66,15 +70,15 @@ class optuna_optimize:
 def forecast_arima(series, new_data, seasonal=False, m=1, arima_model=None,
                     start_p=4, start_q=0, d=None, max_p=10, max_q=10, max_d=3, max_order=None,
                     start_P=1, start_Q=1, D=None, max_P=8, max_Q=8, max_D=1):
-
+    
     if not arima_model:
         arima_model = AutoARIMA(start_p=start_p, d=d, start_q=start_q, max_p=max_p, max_d=max_d,
                                 max_q=max_q, max_order=max_order, start_P=start_P, D=D, start_Q=start_Q,
                                 max_P=max_P, max_D=max_D, max_Q=max_Q, seasonal=seasonal, m=m,
-                                trace=False, error_action='ignore', suppress_warnings=True,
+                                trace=True, error_action='ignore', suppress_warnings=True,
                                 stepwise=True, information_criterion='aic', scoring='mse',
                                 with_intercept='auto')
-
+        
     arima_model = arima_model.fit(y=series)
     lista_previsoes = []
     for j in range(new_data.shape[0]):
@@ -134,44 +138,95 @@ def load_and_prepare_data(filepath):
     peru = peru.resample('D').mean()
     return peru
 
-def residual_summary(forecast, target, datetime_index):
+def residual_summary(forecast, target,dt_index):
     preds_residuals = forecast - target
-    residuos = pd.Series(preds_residuals, index=datetime_index.index)
-    display(residuos.describe())
+    residuos = pd.Series(data=preds_residuals, index=dt_index)
+    display(residuos)
+    print(residuos.describe())
 
+    # Valores ajustados fictícios para ilustrar (geralmente não disponíveis apenas com resíduos)
     valores_ajustados = forecast
 
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12, 10))
-    axes[0, 0].scatter(valores_ajustados, preds_residuals)
-    axes[0, 0].set_title('Resíduos vs Valores Ajustados')
+    # Configuração do layout dos subplots
+    fig = plt.figure(figsize=(14, 15))
+    gs = fig.add_gridspec(3, 2)
 
-    sm.qqplot(preds_residuals, line='s', ax=axes[0, 1])
-    axes[0, 1].set_title('Q-Q Plot dos Resíduos')
+    # Gráfico dos resíduos versus valores ajustados (valores fictícios)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.scatter(valores_ajustados, preds_residuals)
+    ax1.axhline(0, color='red', linestyle='--')
+    ax1.set_title('Resíduos vs Valores Ajustados')
 
-    axes[1, 0].hist(preds_residuals, bins=20)
-    axes[1, 0].set_title('Histograma dos Resíduos')
+    # Q-Q plot dos resíduos para verificar normalidade
+    ax2 = fig.add_subplot(gs[0, 1])
+    sm.qqplot(preds_residuals, line='s', ax=ax2)
+    ax2.set_title('Q-Q Plot dos Resíduos')
 
-    plot_acf(preds_residuals, ax=axes[1, 1])
-    axes[1, 1].set_title('Autocorrelação dos Resíduos')
+    # Histograma dos resíduos
+    ax3 = fig.add_subplot(gs[1, 0])
+    sns.histplot(x=preds_residuals, kde=True, ax=ax3)
+    ax3.set_title('Histograma com KDE dos Resíduos')
+
+    # Gráfico de autocorrelação dos resíduos
+    ax4 = fig.add_subplot(gs[1, 1])
+    sm.graphics.tsa.plot_acf(preds_residuals, ax=ax4)
+    ax4.set_title('Autocorrelação dos Resíduos')
+
+    # Resíduos vs. Tempo (ocupando a segunda linha inteira)
+    ax5 = fig.add_subplot(gs[2, :])
+    ax5.plot(preds_residuals)
+    ax5.axhline(0, color='red', linestyle='--')
+    ax5.set_title('Resíduos ao longo do Tempo')
 
     plt.tight_layout()
     plt.show()
 
-    stat, p_value = shapiro(preds_residuals)
-    alpha = 0.05
-    print(f'Estatística de teste: {stat:.4f}, p-valor: {p_value:.4f}')
-
-    if p_value > alpha:
-        print('Os resíduos parecem seguir uma distribuição normal (não rejeitamos H0)')
+    # Testes Estatísticos e Interpretações
+    shapiro_pvalue = shapiro(preds_residuals)[1]
+    kstest_pvalue = kstest(preds_residuals, 'norm')[1]
+    durbin_watson_stat = durbin_watson(preds_residuals)
+    
+    print("Shapiro-Wilk Test p-value:", shapiro_pvalue)
+    if shapiro_pvalue > 0.05:
+        print("Interpretação: Não podemos rejeitar a hipótese nula de que os resíduos seguem uma distribuição normal (p > 0.05).")
     else:
-        print('Os resíduos não parecem seguir uma distribuição normal (rejeitamos H0)')
+        print("Interpretação: Rejeitamos a hipótese nula de que os resíduos seguem uma distribuição normal (p <= 0.05).")
+        
+    print("Kolmogorov-Smirnov Test p-value:", kstest_pvalue)
+    if kstest_pvalue > 0.05:
+        print("Interpretação: Não podemos rejeitar a hipótese nula de que os resíduos seguem uma distribuição normal (p > 0.05).")
+    else:
+        print("Interpretação: Rejeitamos a hipótese nula de que os resíduos seguem uma distribuição normal (p <= 0.05).")
+
+    shapiro_francia_pvalue = shapiroFrancia(preds_residuals)['p-value']
+    print("Shapiro-Francia Test p-value:", shapiro_francia_pvalue)
+    if shapiro_francia_pvalue > 0.05:
+        print("Interpretação: Não podemos rejeitar a hipótese nula de que os resíduos seguem uma distribuição normal (p > 0.05).")
+    else:
+        print("Interpretação: Rejeitamos a hipótese nula de que os resíduos seguem uma distribuição normal (p <= 0.05).")
+
+        
+    print("Durbin-Watson Statistic:", durbin_watson_stat)
+    if durbin_watson_stat < 1.5 or durbin_watson_stat > 2.5:
+        print("Interpretação: Possível autocorrelação nos resíduos (Durbin-Watson fora do intervalo 1.5-2.5).")
+    else:
+        print("Interpretação: Não há evidência de autocorrelação nos resíduos (Durbin-Watson dentro do intervalo 1.5-2.5).")
+    
+    # Teste de Heterocedasticidade
+    model = sm.OLS(preds_residuals, sm.add_constant(valores_ajustados)).fit()
+    _, pval, _, f_pval = het_breuschpagan(model.resid, model.model.exog)
+    print('Breusch-Pagan Test p-value:', pval)
+    if pval > 0.05:
+        print("Interpretação: Não podemos rejeitar a hipótese nula de homocedasticidade (variância constante dos resíduos) (p > 0.05).")
+    else:
+        print("Interpretação: Rejeitamos a hipótese nula de homocedasticidade (variância constante dos resíduos) (p <= 0.05).")
 
 def Default_LSTM(peru):
     peru_x,peru_y = SlidingWindow(window_len=8,horizon=8,stride=None)(peru['peru'].values)
     splits = TSSplitter(valid_size=0.15,test_size=0.15)(peru_y)
     optuna_opt = optuna_optimize(LSTMPlus,peru_x,peru_y,splits)
 
-    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=2,seed=1),n_trials=3,gc_after_trial=True,direction="minimize",show_plots=False)
+    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
     print(f"O Melhor modelo foi o de número {study.best_trial.number}")
     print("Best hyperparameters: ", study.best_trial.params)
 
@@ -191,7 +246,7 @@ def Default_LSTM(peru):
     plt.plot(peru_forecast.flatten())
     plt.show()
 
-    residual_summary(peru_forecast.flatten(), target_peru.flatten(), peru['peru'].loc[peru['peru'].isin(peru_y[splits[2]].flatten())])
+    residual_summary(peru_forecast.flatten(), target_peru.flatten(), peru['peru'].loc[peru['peru'].isin(peru_y[splits[2]].flatten())].index)
 
 
 
@@ -202,15 +257,17 @@ def STL_ARIMA_ES_LSTM(peru):
     resid_x,resid_y = SlidingWindow(window_len=8,horizon=8,stride=None)(resid.values)
     splits_testando = TSSplitter(valid_size=0.15,test_size=0.15)(resid_y)
 
-    optuna_opt = optuna_optimize(LSTMPlus,resid_x,resid_y,splits_testando)
-    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=250,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
-    print(f"O Melhor modelo foi o de número {study.best_trial.number}")
-    print("Best hyperparameters: ", study.best_trial.params)
+    # optuna_opt = optuna_optimize(LSTMPlus,resid_x,resid_y,splits_testando,epochs=50)
+    # study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
+    # print(f"O Melhor modelo foi o de número {study.best_trial.number}")
+    # print("Best hyperparameters: ", study.best_trial.params)
 
-    residual_forecast,target_residual = forecast_ann(resid_x, resid_y,splits_testando,model=LSTMPlus, epochs=100,
-                                                     arch_config={key: value for key, value in list(study.best_trial.params.items())[:-1]},
+
+    residual_forecast,target_residual = forecast_ann(resid_x, resid_y,splits_testando,model=LSTMPlus, epochs=50,
+                                                     arch_config={'hidden_size': 135, 'n_layers': 2, 'rnn_dropout': 0.6193926562216368, 'bidirectional': True, 'fc_dropout': 0.209474313213079},
                                                      btfms=TSStandardize(),loss_func=HuberLoss('mean'),cbs=[ReduceLROnPlateau(patience=3)],
-                                                     lr=study.best_trial.params['learning_rate_model'])
+                                                     lr=0.0008327152231865279
+                                                     )
 
     train_values = np.concatenate([resid_x[splits_testando[0]].flatten(),resid_x[splits_testando[1]].flatten()])
     train_index = resid.loc[resid.isin(train_values)].index
@@ -227,6 +284,8 @@ def STL_ARIMA_ES_LSTM(peru):
 
     final_pred = residual_forecast.flatten() + seasonal_forecast.flatten() + trend_forecast.flatten()
     real_values = target_residual.numpy().flatten() + test_trend + seasonal[test_trend.index]
+    index = real_values.index
+    real_values = real_values.values
     final_pred = final_pred.numpy()
 
     print(f"RMSE: {mean_squared_error(real_values, final_pred, squared=False)}")
@@ -236,11 +295,11 @@ def STL_ARIMA_ES_LSTM(peru):
     print(f"Correlação Linear: {np.corrcoef(real_values, final_pred)[0, 1]}")
 
     plt.figure(figsize=(20, 5))
-    plt.plot(real_values.index, real_values)
-    plt.plot(real_values.index, final_pred)
+    plt.plot(index, real_values)
+    plt.plot(index, final_pred)
     plt.show()
 
-    residual_summary(final_pred, real_values, resid.loc[resid.isin(resid_x[splits_testando[2]].flatten())])
+    residual_summary(final_pred, real_values, resid.loc[resid.isin(resid_x[splits_testando[2]].flatten())].index)
 
 
 def main():
@@ -253,6 +312,4 @@ def main():
     print('Default LSTM')
     Default_LSTM(peru=peru)
 
-
-if __name__ == '__main__':
-    main()
+main()
