@@ -224,7 +224,7 @@ def residual_summary(forecast, target,dt_index):
 def Default_LSTM(peru):
     peru_x,peru_y = SlidingWindow(window_len=8,horizon=8,stride=None)(peru['peru'].values)
     splits = TSSplitter(valid_size=0.15,test_size=0.15)(peru_y)
-    optuna_opt = optuna_optimize(LSTMPlus,peru_x,peru_y,splits)
+    optuna_opt = optuna_optimize(LSTMPlus,peru_x,peru_y,splits,100)
 
     study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
     print(f"O Melhor modelo foi o de número {study.best_trial.number}")
