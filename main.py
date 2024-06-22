@@ -274,7 +274,7 @@ def STL_ARIMA_ES_LSTM(peru):
     train_trend = trend.loc[train_index]
     test_trend = trend.loc[test_index]
 
-    arima_model, trend_forecast = forecast_arima(series=train_trend,new_data=test_trend.values.reshape(-1,1,8))
+    arima_model, trend_forecast = forecast_arima(series=train_trend,new_data=test_trend.values.reshape(-1,1,8),max_p=40,start_p=20)
 
     train_seasonal = seasonal.loc[train_index]
     test_seasonal = seasonal.loc[test_index]
