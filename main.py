@@ -256,7 +256,7 @@ def STL_ARIMA_ES_LSTM(peru):
 
     resid_x,resid_y = SlidingWindow(window_len=8,horizon=8,stride=None)(resid.values)
     splits_testando = TSSplitter(valid_size=0.15,test_size=0.15)(resid_y)
-
+    raise TypeError
     optuna_opt = optuna_optimize(LSTMPlus,resid_x,resid_y,splits_testando,epochs=50)
     study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
     print(f"O Melhor modelo foi o de número {study.best_trial.number}")
@@ -300,15 +300,11 @@ def STL_ARIMA_ES_LSTM(peru):
 
     residual_summary(final_pred, real_values, resid.loc[resid.isin(resid_x[splits_testando[2]].flatten())].index)
 
-
-def main():
-    filepath = 'peru.csv'
-    peru = load_and_prepare_data(filepath)
-    print('====================================================================================================')
-    print('STL + ARIMA + ES + LSTM')
-    STL_ARIMA_ES_LSTM(peru=peru)
-    print('====================================================================================================')
-    print('Default LSTM')
-    Default_LSTM(peru=peru)
-
-main()
+filepath = 'peru.csv'
+peru = load_and_prepare_data(filepath)
+print('====================================================================================================')
+print('STL + ARIMA + ES + LSTM')
+STL_ARIMA_ES_LSTM(peru=peru)
+print('====================================================================================================')
+print('Default LSTM')
+Default_LSTM(peru=peru)
