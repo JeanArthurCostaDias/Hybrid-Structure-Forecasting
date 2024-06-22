@@ -226,7 +226,7 @@ def Default_LSTM(peru):
     splits = TSSplitter(valid_size=0.15,test_size=0.15)(peru_y)
     optuna_opt = optuna_optimize(LSTMPlus,peru_x,peru_y,splits,100)
 
-    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
+    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=250,seed=1),n_trials=500,gc_after_trial=True,direction="minimize",show_plots=False)
     print(f"O Melhor modelo foi o de número {study.best_trial.number}")
     print("Best hyperparameters: ", study.best_trial.params)
 
@@ -256,9 +256,8 @@ def STL_ARIMA_ES_LSTM(peru):
 
     resid_x,resid_y = SlidingWindow(window_len=8,horizon=8,stride=None)(resid.values)
     splits_testando = TSSplitter(valid_size=0.15,test_size=0.15)(resid_y)
-    raise TypeError
     optuna_opt = optuna_optimize(LSTMPlus,resid_x,resid_y,splits_testando,epochs=50)
-    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=500,seed=1),n_trials=1000,gc_after_trial=True,direction="minimize",show_plots=False)
+    study = run_optuna_study(optuna_opt.optuna_objective,sampler= optuna.samplers.TPESampler(n_startup_trials=250,seed=1),n_trials=500,gc_after_trial=True,direction="minimize",show_plots=False)
     print(f"O Melhor modelo foi o de número {study.best_trial.number}")
     print("Best hyperparameters: ", study.best_trial.params)
 
